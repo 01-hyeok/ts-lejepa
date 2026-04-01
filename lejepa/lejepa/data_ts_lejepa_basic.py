@@ -202,7 +202,7 @@ class TSLDMultiResDataset(Dataset):
                             self.sample_indices.append((series_idx, start))
             except Exception as e:
                 # 개별 파일 로드 실패 시 무시하고 진행
-                print(f"[ERROR] {file_path}: {e}")
+                # print(f"[ERROR] {file_path}: {e}")
                 continue
         print(f"✅ TSLDMultiResDataset ({mode}): {len(self.sample_indices)} 샘플 인덱싱 완료")
 
