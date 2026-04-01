@@ -9,7 +9,8 @@ export CUDA_VISIBLE_DEVICES=0
 
 PRETRAIN_DATA="tsld"
 ARCH="tiling"
-PRETRAIN_PATH_SAVE="./checkpoints/pretrain/pretrain_${PRETRAIN_DATA}_${ARCH}_lamb/${ARCH}/lejepa_best_${PRETRAIN_DATA}.pt"
+CHECKPOINT_TYPE='total'
+PRETRAIN_PATH_SAVE="./checkpoints/pretrain/pretrain_${PRETRAIN_DATA}_${ARCH}_lamb/${CHECKPOINT_TYPE}/lejepa_best_${PRETRAIN_DATA}.pt"
 
 if [ ! -f "$PRETRAIN_PATH_SAVE" ]; then
     echo "⚠️ Error: Pretrained checkpoint not found at $PRETRAIN_PATH_SAVE"
@@ -35,9 +36,9 @@ for DATA in "${TARGET_DATASETS[@]}"; do
     else
         DATA_DIR="${DATA}"
     fi
-    DATA_PATH="/data/pjh_workspace/Dataset/Time-Series-Library_dataset/${DATA_DIR}/${DATA}.csv"
+    DATA_PATH="../Dataset/Time-Series-Library_dataset/${DATA_DIR}/${DATA}.csv"
     
-    LOG_DIR="./checkpoints/linear_probing/LeJEPA_${PRETRAIN_DATA}_to_${DATA}_${ARCH}_lamb"
+    LOG_DIR="./checkpoints/linear_probing/LeJEPA_${PRETRAIN_DATA}_to_${DATA}_${ARCH}_${CHECKPOINT_TYPE}_lamb"
     mkdir -p ${LOG_DIR}
     
     for PRED_LEN in "${PRED_LENGTHS[@]}"; do

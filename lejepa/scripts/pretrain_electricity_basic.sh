@@ -5,7 +5,7 @@ export CUDA_VISIBLE_DEVICES=0
 
 # 데이터셋 정보
 DATA="electricity"
-DATA_PATH="/data/pjh_workspace/Dataset/long_term_forecast/electricity/electricity.csv"
+DATA_PATH="../Dataset/long_term_forecast/electricity/electricity.csv"
 
 # 하이퍼파라미터
 BATCH_SIZE=32

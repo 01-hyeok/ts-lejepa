@@ -45,7 +45,7 @@ for CHECKPOINT_TYPE in "${CHECKPOINT_TYPES[@]}"; do
         else
             DATA_DIR="${DATA}"
         fi
-        DATA_PATH="/data/pjh_workspace/Dataset/Time-Series-Library_dataset/${DATA_DIR}/${DATA}.csv"
+        DATA_PATH="../Dataset/Time-Series-Library_dataset/${DATA_DIR}/${DATA}.csv"
         
         # 로그 디렉토리에 체크포인트 타입 명시
         LOG_DIR="./checkpoints/linear_probing/LeJEPA_${PRETRAIN_DATA}_to_${DATA}_${ARCH}_${CHECKPOINT_TYPE}"

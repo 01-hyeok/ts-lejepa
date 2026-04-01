@@ -9,7 +9,8 @@ export CUDA_VISIBLE_DEVICES=2
 
 PRETRAIN_DATA="tsld"
 ARCH="timevlm"
-PRETRAIN_PATH_SAVE="./checkpoints/pretrain_${PRETRAIN_DATA}_${ARCH}/${ARCH}/lejepa_best_${PRETRAIN_DATA}.pt"
+CHECKPOINT_TYPE='total'
+PRETRAIN_PATH_SAVE="./checkpoints/pretrain_${PRETRAIN_DATA}_${ARCH}/${ARCH}/lejepa_best_${CHECKPOINT_TYPE}_${PRETRAIN_DATA}.pt"
 
 if [ ! -f "$PRETRAIN_PATH_SAVE" ]; then
     echo "⚠️ Error: Pretrained checkpoint not found at $PRETRAIN_PATH_SAVE"

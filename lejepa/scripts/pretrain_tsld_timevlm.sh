@@ -5,7 +5,7 @@ export CUDA_VISIBLE_DEVICES=1
 
 # 데이터셋 정보
 DATA="tsld"
-DATA_PATH="/data/pjh_workspace/Dataset/TSLD-1G"
+DATA_PATH="../Dataset/TSLD-1G"
 
 # 하이퍼파라미터
 BATCH_SIZE=32
