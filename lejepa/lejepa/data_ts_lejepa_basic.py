@@ -202,6 +202,7 @@ class TSLDMultiResDataset(Dataset):
                             self.sample_indices.append((series_idx, start))
             except Exception as e:
                 # 개별 파일 로드 실패 시 무시하고 진행
+                print(f"[ERROR] {file_path}: {e}")
                 continue
         print(f"✅ TSLDMultiResDataset ({mode}): {len(self.sample_indices)} 샘플 인덱싱 완료")
 
@@ -222,8 +223,8 @@ def get_1d_multires_loaders(dataset_type="electricity", path="", batch_size=64, 
     transform = MultiResolution1DTransform(global_len=seq_len, local_len=local_len) if arch.lower() != "utica" else None
     if dataset_type == "tsld":
         # TSLD 표준: 항상 non-overlapping (stride = seq_len)
-        train_ds = TSLDMultiResDataset(path, seq_len, seq_len, "train", max_files, transform)
-        val_ds = TSLDMultiResDataset(path, seq_len, seq_len, "val", max_files, transform)
+        train_ds = TSLDMultiResDataset(path, seq_len, stride, "train", max_files, transform)
+        val_ds = TSLDMultiResDataset(path, seq_len, stride, "val", max_files, transform)
     else:
         train_ds = CSVMultiResDataset(path, seq_len, stride, "train", transform)
         val_ds = CSVMultiResDataset(path, seq_len, stride, "val", transform)

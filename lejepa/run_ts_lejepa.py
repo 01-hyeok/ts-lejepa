@@ -121,6 +121,7 @@ def validate(net, sigreg, loader, device, args):
 def train(args):
     set_seed(args.seed); device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # arch를 추가로 넘겨서 UTICA일 경우 transform=None 으로 처리되게 함
+    print(args.data_path)
     train_loader, val_loader = get_1d_multires_loaders(args.dataset_type, args.data_path, args.batch_size, args.seq_len, args.stride, args.num_workers, args.max_files, local_len=args.local_len, arch=args.arch)
     
     # 아키텍처별 로그/저장 경로 자동 분리
