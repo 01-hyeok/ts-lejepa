@@ -110,6 +110,23 @@ def train(args):
     print(f"📊 Prediction Length: {args.pred_len}")
     print("="*50)
     
+    # 2.5 Experiment ID & Directory Structure
+    # 아키텍처, 타겟 데이터셋, 체크포인트 타입을 조합하여 고유 실험 ID 생성 (pred_len은 제외하여 같은 Run에 기록)
+    ckpt_type = os.path.basename(args.pretrain_path).split('_')[2] if 'best' in args.pretrain_path else "total"
+    exp_id = f"LeJEPA_{args.pretrain_dataset}_to_{args.dataset_type}_{arch_key}_{ckpt_type}"
+    
+    runs_root = os.path.join('runs', exp_id)
+    ckpt_root = os.path.join('checkpoints', 'linear_probing', exp_id)
+    
+    runs_dir_train = os.path.join(runs_root, 'train')
+    runs_dir_val = os.path.join(runs_root, 'val')
+    os.makedirs(runs_dir_train, exist_ok=True)
+    os.makedirs(runs_dir_val, exist_ok=True)
+    os.makedirs(ckpt_root, exist_ok=True)
+    
+    writer_train = SummaryWriter(runs_dir_train)
+    writer_val = SummaryWriter(runs_dir_val)
+    
     # 3. Pretrained Encoder 로드 & Freeze
     if arch_key == "basic":
         encoder = MultiResViTEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
@@ -129,9 +146,9 @@ def train(args):
     elif arch_key == "tiling_ci":
         encoder = MultiResViTCIEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
     elif arch_key == "patchtst":
-        encoder = PatchTS1DEncoder(in_vars=pretrain_in_vars, d_model=384, proj_dim=args.proj_dim, use_revin=args.use_revin).to(device)
+        encoder = PatchTS1DEncoder(in_vars=pretrain_in_vars, d_model=384, proj_dim=args.proj_dim, use_revin=False).to(device)
     elif arch_key == "utica":
-        encoder = UTICAEncoder(in_vars=pretrain_in_vars, d_model=384, proj_dim=args.proj_dim, use_revin=args.use_revin).to(device)
+        encoder = UTICAEncoder(in_vars=pretrain_in_vars, d_model=384, proj_dim=args.proj_dim, use_revin=False).to(device)
     elif arch_key == "conv":
         encoder = MultiResViTConvEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
     else:
@@ -174,7 +191,7 @@ def train(args):
     else:
         embed_dim = encoder.backbone.num_features
         
-    if arch_key in ["tiling_ci", "patchtst", "utica"]:
+    if arch_key in ["tiling_ci", "patchtst", "utica", "conv"]:
         decoder = LeJEPALinearProbingHeadCI(in_vars, embed_dim, args.pred_len).to(device)
         print(f"✅ Probing Head [CI]: [B*C, {embed_dim}] -> [B, {in_vars}, {args.pred_len}]")
     else:
@@ -192,9 +209,6 @@ def train(args):
         
     opt = torch.optim.Adam(trainable_params, lr=args.lr)
     criterion = nn.MSELoss()
-
-    os.makedirs(args.log_dir, exist_ok=True)
-    writer = SummaryWriter(os.path.join(args.log_dir, f'linear_{args.arch}_{args.dataset_type}_{args.pred_len}'))
 
     best_val_loss = float('inf')
 
@@ -281,16 +295,16 @@ def train(args):
                 
         avg_val_loss = np.mean(val_loss)
         print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
-        writer.add_scalar("Loss/Train", avg_train_loss, epoch)
-        writer.add_scalar("Loss/Val", avg_val_loss, epoch)
+        writer_train.add_scalar(f"Loss_pred{args.pred_len}", avg_train_loss, epoch)
+        writer_val.add_scalar(f"Loss_pred{args.pred_len}", avg_val_loss, epoch)
         
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save({'decoder': decoder.state_dict(), 'adapter': channel_adapter.state_dict() if pretrain_in_vars != in_vars else None}, 
-                       os.path.join(args.log_dir, f"best_model_{args.pred_len}.pt"))
+                       os.path.join(ckpt_root, f"best_model_{args.pred_len}.pt"))
             
     # 7. Test Evaluation
-    best_ckpt = torch.load(os.path.join(args.log_dir, f"best_model_{args.pred_len}.pt"))
+    best_ckpt = torch.load(os.path.join(ckpt_root, f"best_model_{args.pred_len}.pt"))
     decoder.load_state_dict(best_ckpt['decoder'])
     if pretrain_in_vars != in_vars and best_ckpt['adapter'] is not None:
         channel_adapter.load_state_dict(best_ckpt['adapter'])
@@ -340,8 +354,8 @@ def train(args):
     print(f"MSE: {final_mse:.6f} | MAE: {final_mae:.6f}")
     print("="*50)
     
-    # 텍스트 파일 저장 (summary)
-    summary_path = os.path.join(args.log_dir, "results_summary.txt")
+    # 텍스트 파일 저장 (summary) - ckpt_root 내부에 저장
+    summary_path = os.path.join(ckpt_root, "results_summary.txt")
     with open(summary_path, "a") as f:
         f.write(f"Target: {args.target_dataset} | Pretrain: {args.pretrain_dataset} | Pred_len: {args.pred_len:4d} | MSE: {final_mse:.6f} | MAE: {final_mae:.6f}\n")
 
