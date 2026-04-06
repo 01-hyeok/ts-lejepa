@@ -13,16 +13,15 @@ LR=1e-5
 EPOCHS=100
 STRIDE=512
 SEQ_LEN=512
-ALPHA=1.0      # prediction loss 가중치 (α)
-LAMB=0.01       # sigreg loss 가중치 (β); Loss 값이 아닌 모델을 훈련시키는 힘(Gradient)을 1:1로 맞추기 위해 가중치를 동일하게 부여함
+LAMB=0.02
 PATCH_SIZE=16  # 새로 추가된 1D 패치 크기 파라미터
 REVIN=False      # RevIN(Instance Norm) 적용 여부: True / False
-LOCAL_LEN=256
+LOCAL_LEN=256  # Local View 크롭 길이 (타임스텝): 128 -> 256 으로 확장
 
 # 아키텍처 설정: patchtst (PatchTST 스타일 1D पै치 인코더)
-ARCH="utica"
-SAVE_DIR="./checkpoints/pretrain/pretrain_${DATA}_${ARCH}_lamb"
-LOG_DIR="./runs/pretrain_${DATA}_${ARCH}_lamb"
+ARCH="timesnet"
+SAVE_DIR="./checkpoints/pretrain/pretrain_${DATA}_${ARCH}"
+LOG_DIR="./runs/pretrain_${DATA}_${ARCH}"
 
 echo "🚀 LeJEPA [${ARCH^^}] Pretraining 시작: ${DATA} (Patch Size: ${PATCH_SIZE})"
 

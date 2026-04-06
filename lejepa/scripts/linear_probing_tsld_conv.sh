@@ -8,7 +8,7 @@ export CUDA_VISIBLE_DEVICES=0
 # ==========================================
 
 PRETRAIN_DATA="tsld"
-ARCH="utica"
+ARCH="conv"
 
 # 체크포인트 타입 정의 (total, pred 둘 다 수행)
 CHECKPOINT_TYPES=("total")
@@ -47,9 +47,7 @@ for CHECKPOINT_TYPE in "${CHECKPOINT_TYPES[@]}"; do
         fi
         DATA_PATH="../Dataset/Time-Series-Library_dataset/${DATA_DIR}/${DATA}.csv"
         
-        # 로그 디렉토리에 체크포인트 타입 명시
-        LOG_DIR="./checkpoints/linear_probing/LeJEPA_${PRETRAIN_DATA}_to_${DATA}_${ARCH}_${CHECKPOINT_TYPE}"
-        mkdir -p ${LOG_DIR}
+        # 파이썬 내부에서 runs/{exp_id} 및 checkpoints/linear_probing/{exp_id}로 자동 분기됩니다.
         
         for PRED_LEN in "${PRED_LENGTHS[@]}"; do
             echo "----------------------------------------"
@@ -67,8 +65,7 @@ for CHECKPOINT_TYPE in "${CHECKPOINT_TYPES[@]}"; do
                 --epochs ${NUM_EPOCHS} \
                 --pred_len ${PRED_LEN} \
                 --use_revin True \
-                --num_workers 0 \
-                --log_dir "${LOG_DIR}"
+                --num_workers 0
                 
             if [ $? -eq 0 ]; then
                 echo "✓ ${DATA} (${CHECKPOINT_TYPE}, pred_len=${PRED_LEN}) 완료!"
@@ -81,5 +78,5 @@ done
 
 echo "=========================================="
 echo "모든 Linear Probing 스크립트 실행이 완료되었습니다."
-echo "결과는 ./checkpoints/linear_probing/ 에서 확인하세요."
+echo "결과는 ./runs/ 및 ./checkpoints/linear_probing/ 에서 확인하세요."
 echo "=========================================="

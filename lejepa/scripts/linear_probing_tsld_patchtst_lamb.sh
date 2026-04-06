@@ -8,10 +8,10 @@ export CUDA_VISIBLE_DEVICES=0
 # ==========================================
 
 PRETRAIN_DATA="tsld"
-ARCH="utica"
+ARCH="patchtst"
 
 # 체크포인트 타입 정의 (total, pred 둘 다 수행)
-CHECKPOINT_TYPES=("total")
+CHECKPOINT_TYPES=("total" "pred")
 
 TARGET_DATASETS=("ETTm1" "ETTm2" "weather")
 PRED_LENGTHS=(96 192 336 720)
@@ -26,7 +26,7 @@ for CHECKPOINT_TYPE in "${CHECKPOINT_TYPES[@]}"; do
     echo "******************************************"
     
     # 불러올 체크포인트 경로 설정
-    PRETRAIN_PATH_SAVE="./checkpoints/pretrain/pretrain_${PRETRAIN_DATA}_${ARCH}/${ARCH}/lejepa_best_${CHECKPOINT_TYPE}_${PRETRAIN_DATA}.pt"
+    PRETRAIN_PATH_SAVE="./checkpoints/pretrain/pretrain_${PRETRAIN_DATA}_${ARCH}_lamb/${ARCH}/lejepa_best_${CHECKPOINT_TYPE}_${PRETRAIN_DATA}.pt"
 
     if [ ! -f "$PRETRAIN_PATH_SAVE" ]; then
         echo "⚠️ Warning: Pretrained checkpoint not found at $PRETRAIN_PATH_SAVE"
@@ -48,7 +48,7 @@ for CHECKPOINT_TYPE in "${CHECKPOINT_TYPES[@]}"; do
         DATA_PATH="../Dataset/Time-Series-Library_dataset/${DATA_DIR}/${DATA}.csv"
         
         # 로그 디렉토리에 체크포인트 타입 명시
-        LOG_DIR="./checkpoints/linear_probing/LeJEPA_${PRETRAIN_DATA}_to_${DATA}_${ARCH}_${CHECKPOINT_TYPE}"
+        LOG_DIR="./checkpoints/linear_probing/LeJEPA_${PRETRAIN_DATA}_to_${DATA}_${ARCH}_${CHECKPOINT_TYPE}_lamb"
         mkdir -p ${LOG_DIR}
         
         for PRED_LEN in "${PRED_LENGTHS[@]}"; do

@@ -4,25 +4,24 @@
 export CUDA_VISIBLE_DEVICES=0
 
 # 데이터셋 정보
-DATA="tsld"
-DATA_PATH="../Dataset/TSLD-1G"
+DATA="electricity"
+DATA_PATH="../Dataset/long_term_forecast/electricity/electricity.csv"
 
 # 하이퍼파라미터
 BATCH_SIZE=32
 LR=1e-5
 EPOCHS=100
-STRIDE=512
+STRIDE=1
 SEQ_LEN=512
-ALPHA=1.0      # prediction loss 가중치 (α)
-LAMB=0.01       # sigreg loss 가중치 (β); Loss 값이 아닌 모델을 훈련시키는 힘(Gradient)을 1:1로 맞추기 위해 가중치를 동일하게 부여함
-PATCH_SIZE=16  # 새로 추가된 1D 패치 크기 파라미터
-REVIN=False      # RevIN(Instance Norm) 적용 여부: True / False
+LAMB=0.02
+PATCH_SIZE=16
+REVIN=False
 LOCAL_LEN=256
 
-# 아키텍처 설정: patchtst (PatchTST 스타일 1D पै치 인코더)
+# 아키텍처 설정: utica (GPU Multi-Crop + PatchTST)
 ARCH="utica"
-SAVE_DIR="./checkpoints/pretrain/pretrain_${DATA}_${ARCH}_lamb"
-LOG_DIR="./runs/pretrain_${DATA}_${ARCH}_lamb"
+SAVE_DIR="./checkpoints/pretrain/pretrain_${DATA}_${ARCH}"
+LOG_DIR="./runs/pretrain_${DATA}_${ARCH}"
 
 echo "🚀 LeJEPA [${ARCH^^}] Pretraining 시작: ${DATA} (Patch Size: ${PATCH_SIZE})"
 

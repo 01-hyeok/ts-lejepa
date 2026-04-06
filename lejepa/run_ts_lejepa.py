@@ -27,6 +27,7 @@ from lejepa.model_ts_lejepa_ci import MultiResViTCIEncoder
 from lejepa.model_ts_conv import MultiResViTConvEncoder
 from lejepa.model_ts_lejepa_1d import PatchTS1DEncoder
 from lejepa.model_ts_utica import UTICAEncoder
+from lejepa.model_ts_timesblock import LeJEPATimesModel
 
 def set_seed(seed=42):
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
@@ -177,6 +178,10 @@ def train(args):
         net = PatchTS1DEncoder(in_vars, proj_dim=args.proj_dim, patch_size=args.patch_size, use_revin=args.use_revin).to(device)
     elif arch_key == "utica":
         net = UTICAEncoder(in_vars, proj_dim=args.proj_dim, patch_size=args.patch_size, use_revin=args.use_revin).to(device)
+    elif arch_key == "timesnet":
+        net = LeJEPATimesModel(in_channels=in_vars, d_model=128, proj_dim=args.proj_dim).to(device)
+    elif arch_key == "timesnet_update":
+        net = LeJEPATimesModel(in_channels=in_vars, d_model=128, proj_dim=args.proj_dim, norm_type="instance").to(device)
     else:
         raise ValueError(f"Unknown architecture: {args.arch}")
         

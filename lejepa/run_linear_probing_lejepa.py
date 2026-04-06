@@ -20,6 +20,7 @@ from lejepa.model_ts_lejepa_ci import MultiResViTCIEncoder
 from lejepa.model_ts_lejepa_1d import PatchTS1DEncoder
 from lejepa.model_ts_utica import UTICAEncoder
 from lejepa.model_ts_conv import MultiResViTConvEncoder
+from lejepa.model_ts_timesblock import LeJEPATimesModel
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -96,7 +97,7 @@ def train(args):
             pretrain_in_vars = state_dict["backbone.patch_embed.proj.weight"].shape[1]
         elif arch_key == "conv2d" and "canvas_encoder.proj.weight" in state_dict:
             pretrain_in_vars = state_dict["canvas_encoder.proj.weight"].shape[1]
-        elif arch_key in ["timevlm", "tiling_ci", "patchtst", "utica", "conv"]:
+        elif arch_key in ["timevlm", "tiling_ci", "patchtst", "utica", "conv", "timesnet", "timesnet_update"]:
             pretrain_in_vars = in_vars # channel-agnostic or 1D architecture
         else:
             pretrain_in_vars = 321 if args.pretrain_dataset == "electricity" else in_vars
@@ -151,6 +152,10 @@ def train(args):
         encoder = UTICAEncoder(in_vars=pretrain_in_vars, d_model=384, proj_dim=args.proj_dim, use_revin=False).to(device)
     elif arch_key == "conv":
         encoder = MultiResViTConvEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
+    elif arch_key == "timesnet":
+        encoder = LeJEPATimesModel(in_channels=pretrain_in_vars, d_model=128, proj_dim=args.proj_dim).to(device)
+    elif arch_key == "timesnet_update":
+        encoder = LeJEPATimesModel(in_channels=pretrain_in_vars, d_model=128, proj_dim=args.proj_dim, norm_type="instance").to(device)
     else:
         raise ValueError(f"Unknown architecture: {args.arch}")
     
@@ -188,6 +193,8 @@ def train(args):
     # 4. Probing Head & RevIN
     if arch_key in ["patchtst", "utica"]:
         embed_dim = encoder.encoder.d_model if arch_key == "utica" else encoder.d_model
+    elif arch_key in ["timesnet", "timesnet_update"]:
+        embed_dim = 128
     else:
         embed_dim = encoder.backbone.num_features
         
@@ -244,6 +251,10 @@ def train(args):
                 elif arch_key in ["patchtst", "utica"]:
                     actual_enc = encoder.encoder if arch_key == "utica" else encoder
                     emb = actual_enc._process(x_in.unsqueeze(1), max_len=512, offsets=None)
+                elif arch_key in ["timesnet", "timesnet_update"]:
+                    # x_in: [B, C, T] -> transpose to [B, T, C]
+                    seq_repr = encoder(x_in.transpose(1, 2))  # [B, T, D]
+                    emb = seq_repr.mean(dim=1)  # temporal pooling -> [B, D]
                 else:
                     emb = encoder._process(x_in.unsqueeze(1), target_res=224, training=True, is_downstream=True)
                 
@@ -284,6 +295,9 @@ def train(args):
                 elif arch_key in ["patchtst", "utica"]:
                     actual_enc = encoder.encoder if arch_key == "utica" else encoder
                     emb = actual_enc._process(x_in.unsqueeze(1), max_len=512, offsets=None)
+                elif arch_key in ["timesnet", "timesnet_update"]:
+                    seq_repr = encoder(x_in.transpose(1, 2))
+                    emb = seq_repr.mean(dim=1)
                 else:
                     emb = encoder._process(x_in.unsqueeze(1), target_res=224, training=False, is_downstream=True)
                 
@@ -331,6 +345,9 @@ def train(args):
             elif arch_key in ["patchtst", "utica"]:
                 actual_enc = encoder.encoder if arch_key == "utica" else encoder
                 emb = actual_enc._process(x_in.unsqueeze(1), max_len=512, offsets=None)
+            elif arch_key in ["timesnet", "timesnet_update"]:
+                seq_repr = encoder(x_in.transpose(1, 2))
+                emb = seq_repr.mean(dim=1)
             else:
                 emb = encoder._process(x_in.unsqueeze(1), target_res=224, training=False, is_downstream=True)
             

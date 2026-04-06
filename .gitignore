@@ -5,3 +5,4 @@ __pycache__/
 checkpoints/
 logs/
 runs/
+runs_temp/

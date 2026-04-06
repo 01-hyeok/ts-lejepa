@@ -129,6 +129,7 @@ class PatchTS1DEncoder(nn.Module):
         max_len: int,
         offsets: Optional[torch.Tensor] = None,
         lengths: Optional[torch.Tensor] = None,
+        return_seq: bool = False,
     ) -> torch.Tensor:
         """Process a single View type (Global or Local) through the encoder.
 
@@ -137,8 +138,9 @@ class PatchTS1DEncoder(nn.Module):
             max_len: Full sequence length of the Global View (512).
             offsets: [B_v] long tensor — timestep-level crop start positions.
             lengths: [B_v] long tensor — timestep-level crop lengths.
+            return_seq: If True, skip GAP and return token sequence [B_v*C, N, d_model].
         Returns:
-            [B_v * C, d_model]
+            [B_v * C, d_model]  (or [B_v * C, N, d_model] if return_seq=True)
         """
         B_v, _, C, T = x.shape
 
@@ -179,11 +181,12 @@ class PatchTS1DEncoder(nn.Module):
 
         x = x + pos_embed
 
-
         # Step 3. Transformer 인코더 통과
         x = self.norm(self.transformer(x))  # [B_v*C, N, d_model]
 
-        # Step 4. Global Average Pooling
+        # Step 4. Global Average Pooling (return_seq=True 이면 생략)
+        if return_seq:
+            return x           # [B_v*C, N, d_model]
         return x.mean(dim=1)  # [B_v*C, d_model]
 
     def forward(self, views: dict) -> tuple:
@@ -228,3 +231,4 @@ class PatchTS1DEncoder(nn.Module):
         # proj: [8, B*C, proj_dim]
 
         return all_emb, proj
+

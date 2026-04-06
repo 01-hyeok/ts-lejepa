@@ -26,7 +26,7 @@ for CHECKPOINT_TYPE in "${CHECKPOINT_TYPES[@]}"; do
     echo "******************************************"
     
     # 불러올 체크포인트 경로 설정
-    PRETRAIN_PATH_SAVE="./checkpoints/pretrain/pretrain_${PRETRAIN_DATA}_${ARCH}_lamb/${ARCH}/lejepa_best_${CHECKPOINT_TYPE}_${PRETRAIN_DATA}.pt"
+    PRETRAIN_PATH_SAVE="./checkpoints/pretrain/pretrain_${PRETRAIN_DATA}_${ARCH}/${ARCH}/lejepa_best_${CHECKPOINT_TYPE}_${PRETRAIN_DATA}.pt"
 
     if [ ! -f "$PRETRAIN_PATH_SAVE" ]; then
         echo "⚠️ Warning: Pretrained checkpoint not found at $PRETRAIN_PATH_SAVE"

@@ -151,8 +151,7 @@ class TSLDMultiResDataset(Dataset):
                 df = pd.read_csv(file_path, usecols=cols)
                 # 이상치 처리 (TSL 방식: fillna로 속도 향상)
                 df.replace([np.inf, -np.inf], np.nan, inplace=True)
-                df = df.fillna(method='ffill', limit=len(df)).fillna(method='bfill', limit=len(df))
-                df = df.fillna(0)
+                df = df.ffill().bfill().fillna(0)
                 
                 for col in cols:
                     # 1. 시계열 데이터 추출 및 기본 NaN 처리 (TS-JEPA 방식)
