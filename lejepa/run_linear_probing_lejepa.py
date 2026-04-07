@@ -112,12 +112,17 @@ def train(args):
     print("="*50)
     
     # 2.5 Experiment ID & Directory Structure
-    # 아키텍처, 타겟 데이터셋, 체크포인트 타입을 조합하여 고유 실험 ID 생성 (pred_len은 제외하여 같은 Run에 기록)
-    ckpt_type = os.path.basename(args.pretrain_path).split('_')[2] if 'best' in args.pretrain_path else "total"
-    exp_id = f"LeJEPA_{args.pretrain_dataset}_to_{args.dataset_type}_{arch_key}_{ckpt_type}"
-    
-    runs_root = os.path.join('runs', exp_id)
-    ckpt_root = os.path.join('checkpoints', 'linear_probing', exp_id)
+    if args.log_dir is not None:
+        ckpt_root = args.log_dir
+        exp_id = os.path.basename(os.path.normpath(args.log_dir))
+        runs_root = os.path.join('runs', exp_id)
+    else:
+        # 기존과 같이 아키텍처, 타겟 데이터셋, 체크포인트 타입을 조합하여 공유 실험 ID 생성
+        ckpt_type = os.path.basename(args.pretrain_path).split('_')[2] if 'best' in args.pretrain_path else "total"
+        exp_id = f"LeJEPA_{args.pretrain_dataset}_to_{args.dataset_type}_{arch_key}_{ckpt_type}"
+        
+        runs_root = os.path.join('runs', exp_id)
+        ckpt_root = os.path.join('checkpoints', 'linear_probing', exp_id)
     
     runs_dir_train = os.path.join(runs_root, 'train')
     runs_dir_val = os.path.join(runs_root, 'val')
@@ -397,7 +402,7 @@ if __name__ == "__main__":
     
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--log_dir", default="./outputs/linear_probing")
+    p.add_argument("--log_dir", default=None)
     
     args = p.parse_args()
     
