@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 data_ts_classification.py
 Classification dataset for LeJEPA-based time-series classification.
