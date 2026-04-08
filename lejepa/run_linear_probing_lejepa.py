@@ -10,17 +10,15 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="torch.optim.lr_scheduler")
 
 from lejepa.data_ts_lejepa_downstream import get_downstream_loaders
-from lejepa.model_ts_lejepa_basic import MultiResViTEncoder
-from lejepa.model_ts_lejepa_tiling import MultiResViTTilingEncoder
-from lejepa.model_ts_tivit import TiViTIndependentEncoder, TiViTDependentEncoder
-from lejepa.model_ts_timevlm import TimeVLMEncoder
-from lejepa.model_ts_conv2d import Conv2DLearnableEncoder
+from lejepa.arch_registry import (
+    SUPPORTED_ARCHS,
+    build_encoder,
+    get_embed_dim,
+    infer_pretrain_in_vars,
+    uses_ci_decoder,
+    validate_arch,
+)
 from lejepa.revin import RevIN
-from lejepa.model_ts_lejepa_ci import MultiResViTCIEncoder
-from lejepa.model_ts_lejepa_1d import PatchTS1DEncoder
-from lejepa.model_ts_utica import UTICAEncoder
-from lejepa.model_ts_conv import MultiResViTConvEncoder
-from lejepa.model_ts_timesblock import LeJEPATimesModel
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -65,9 +63,28 @@ class LeJEPALinearProbingHeadCI(nn.Module):
         # output: [B, C, Pred_Len]
         return out.view(-1, self.in_vars, self.pred_len)
 
+
+def extract_emb(encoder, x_in, arch_key):
+    if arch_key == "timevlm":
+        emb = encoder._process(x_in, target_res=224, training=False, is_downstream=True)
+    elif arch_key in ["patchtst", "utica"]:
+        actual_enc = encoder.encoder if arch_key == "utica" else encoder
+        emb = actual_enc._process(x_in.unsqueeze(1), max_len=512, offsets=None)
+    elif arch_key == "timesnet":
+        seq = encoder(x_in.transpose(1, 2))
+        emb = seq.mean(dim=1)
+    else:
+        emb = encoder._process(x_in.unsqueeze(1), target_res=224, training=False, is_downstream=True)
+
+    if arch_key == "tivit_indep":
+        emb = emb.mean(1)
+
+    return emb
+
 def train(args):
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    args.arch = validate_arch(args.arch)
     
     # 1. DataLoader
     train_loader, val_loader, test_loader, scaler = get_downstream_loaders(
@@ -82,27 +99,19 @@ def train(args):
     first_batch_c, _ = next(iter(train_loader))
     in_vars = first_batch_c.shape[1] # Target Data Channels (예: 7)
     
-    arch_key = args.arch.lower().replace('-', '_')
+    arch_key = args.arch
     
     # 2. Pretrained Dataset 차원(pretrain_in_vars) 동적 확인
-    pretrain_in_vars = in_vars
     state_dict = None
     if os.path.exists(args.pretrain_path):
         ckpt = torch.load(args.pretrain_path, map_location='cpu')
         state_dict = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
-        # 체크포인트의 가중치 Shape으로부터 pretrain_in_vars 추론
-        if arch_key == "basic" and "proj.weight" in state_dict:
-            pretrain_in_vars = state_dict["proj.weight"].shape[1]
-        elif arch_key in ["tiling", "tiling_repeat", "tivit_dep"] and "backbone.patch_embed.proj.weight" in state_dict:
-            pretrain_in_vars = state_dict["backbone.patch_embed.proj.weight"].shape[1]
-        elif arch_key == "conv2d" and "canvas_encoder.proj.weight" in state_dict:
-            pretrain_in_vars = state_dict["canvas_encoder.proj.weight"].shape[1]
-        elif arch_key in ["timevlm", "tiling_ci", "patchtst", "utica", "conv", "timesnet", "timesnet_update"]:
-            pretrain_in_vars = in_vars # channel-agnostic or 1D architecture
-        else:
-            pretrain_in_vars = 321 if args.pretrain_dataset == "electricity" else in_vars
-    else:
-        pretrain_in_vars = 321 if args.pretrain_dataset == "electricity" else in_vars
+    pretrain_in_vars = infer_pretrain_in_vars(
+        arch_key,
+        state_dict,
+        in_vars,
+        args.pretrain_dataset,
+    )
     
     print("="*50)
     print(f"🚀 Architecture: {args.arch.upper()}")
@@ -112,15 +121,14 @@ def train(args):
     print("="*50)
     
     # 2.5 Experiment ID & Directory Structure
-    if args.log_dir is not None:
+    # 아키텍처, 타겟 데이터셋, 체크포인트 타입을 조합하여 고유 실험 ID 생성 (pred_len은 제외하여 같은 Run에 기록)
+    ckpt_type = os.path.basename(args.pretrain_path).split('_')[2] if 'best' in args.pretrain_path else "total"
+    exp_id = f"LeJEPA_{args.pretrain_dataset}_to_{args.dataset_type}_{arch_key}_{ckpt_type}"
+    
+    if args.log_dir:
+        runs_root = os.path.join(args.log_dir, 'runs')
         ckpt_root = args.log_dir
-        exp_id = os.path.basename(os.path.normpath(args.log_dir))
-        runs_root = os.path.join('runs', exp_id)
     else:
-        # 기존과 같이 아키텍처, 타겟 데이터셋, 체크포인트 타입을 조합하여 공유 실험 ID 생성
-        ckpt_type = os.path.basename(args.pretrain_path).split('_')[2] if 'best' in args.pretrain_path else "total"
-        exp_id = f"LeJEPA_{args.pretrain_dataset}_to_{args.dataset_type}_{arch_key}_{ckpt_type}"
-        
         runs_root = os.path.join('runs', exp_id)
         ckpt_root = os.path.join('checkpoints', 'linear_probing', exp_id)
     
@@ -134,35 +142,13 @@ def train(args):
     writer_val = SummaryWriter(runs_dir_val)
     
     # 3. Pretrained Encoder 로드 & Freeze
-    if arch_key == "basic":
-        encoder = MultiResViTEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
-    elif arch_key in ["tiling", "tiling_repeat"]:
-        encoder = MultiResViTTilingEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
-    elif arch_key == "tivit_indep":
-        encoder = TiViTIndependentEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
-    elif arch_key == "tivit_dep":
-        encoder = TiViTDependentEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
-    elif arch_key == "timevlm":
-        # TimeVLM은 pretrain_in_vars를 받아 내부 이미지를 생성하고 ViT(in_chans=3)로 전달함
-        encoder = TimeVLMEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
-    elif arch_key == "conv2d":
-        # Conv2D: [B,1,C,T]를 2D 이미지로 보고 학습 가능한 Conv2D 체인으로 캔버스 생성
-        # Conv2D 가중치는 in_vars에 무관하므로 pretrain_in_vars로 초기화 (타기에서 동일하게 동작)
-        encoder = Conv2DLearnableEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
-    elif arch_key == "tiling_ci":
-        encoder = MultiResViTCIEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
-    elif arch_key == "patchtst":
-        encoder = PatchTS1DEncoder(in_vars=pretrain_in_vars, d_model=384, proj_dim=args.proj_dim, use_revin=False).to(device)
-    elif arch_key == "utica":
-        encoder = UTICAEncoder(in_vars=pretrain_in_vars, d_model=384, proj_dim=args.proj_dim, use_revin=False).to(device)
-    elif arch_key == "conv":
-        encoder = MultiResViTConvEncoder(in_vars=pretrain_in_vars, model_name=args.vit_model, proj_dim=args.proj_dim).to(device)
-    elif arch_key == "timesnet":
-        encoder = LeJEPATimesModel(in_channels=pretrain_in_vars, d_model=128, proj_dim=args.proj_dim).to(device)
-    elif arch_key == "timesnet_update":
-        encoder = LeJEPATimesModel(in_channels=pretrain_in_vars, d_model=128, proj_dim=args.proj_dim, norm_type="instance").to(device)
-    else:
-        raise ValueError(f"Unknown architecture: {args.arch}")
+    encoder = build_encoder(
+        arch_key,
+        in_vars=pretrain_in_vars,
+        vit_model=args.vit_model,
+        proj_dim=args.proj_dim,
+        use_revin=False,
+    ).to(device)
     
     if state_dict is not None:
         missing, unexpected = encoder.load_state_dict(state_dict, strict=False)
@@ -178,32 +164,13 @@ def train(args):
         param.requires_grad = False
     encoder.eval()
     
-    # 3. Channel Adapter 디자인
-    if pretrain_in_vars != in_vars:
-        channel_adapter = nn.Linear(in_vars, pretrain_in_vars).to(device)
-        if arch_key == "basic":
-            # Basic: 채널들을 자유롭게 섞어서(Mixing) 사전 학습 차원에 맞춤
-            print(f"✅ Adapter [BASIC]: Linear Mixing {in_vars} -> {pretrain_in_vars}")
-        else:
-            # Tiling/TiViT/TimeVLM: 채널 고유의 이미지가 있으므로 섞지 않고 보존하되,
-            # pretrain_in_vars개 채널을 모두 활용하기 위해 반복(Repeat) 방식으로 초기화
-            with torch.no_grad():
-                channel_adapter.weight.zero_()
-                for j in range(pretrain_in_vars):
-                    channel_adapter.weight[j, j % in_vars] = 1.0
-            print(f"✅ Adapter [{arch_key.upper()}]: Repeat-based Linear {in_vars} -> {pretrain_in_vars}")
-    else:
-        channel_adapter = nn.Identity().to(device)
+    # Channel adapter는 완전히 비활성화한다.
+    print("ℹ️ Channel Adapter: disabled")
 
     # 4. Probing Head & RevIN
-    if arch_key in ["patchtst", "utica"]:
-        embed_dim = encoder.encoder.d_model if arch_key == "utica" else encoder.d_model
-    elif arch_key in ["timesnet", "timesnet_update"]:
-        embed_dim = 128
-    else:
-        embed_dim = encoder.backbone.num_features
+    embed_dim = get_embed_dim(encoder, arch_key)
         
-    if arch_key in ["tiling_ci", "patchtst", "utica", "conv"]:
+    if uses_ci_decoder(arch_key):
         decoder = LeJEPALinearProbingHeadCI(in_vars, embed_dim, args.pred_len).to(device)
         print(f"✅ Probing Head [CI]: [B*C, {embed_dim}] -> [B, {in_vars}, {args.pred_len}]")
     else:
@@ -214,12 +181,8 @@ def train(args):
     if args.use_revin:
         revin = RevIN(num_features=in_vars, affine=False).to(device)
     
-    # 5. Optimizer (Adapter + Decoder만 학습)
-    trainable_params = list(decoder.parameters())
-    if pretrain_in_vars != in_vars:
-        trainable_params += list(channel_adapter.parameters())
-        
-    opt = torch.optim.Adam(trainable_params, lr=args.lr)
+    # 5. Optimizer (Decoder만 학습)
+    opt = torch.optim.Adam(decoder.parameters(), lr=args.lr)
     criterion = nn.MSELoss()
 
     best_val_loss = float('inf')
@@ -228,7 +191,6 @@ def train(args):
     import time
     for epoch in range(args.epochs):
         decoder.train()
-        if pretrain_in_vars != in_vars: channel_adapter.train()
             
         train_loss = []
         for i, (batch_x, batch_y) in enumerate(train_loader):
@@ -236,12 +198,7 @@ def train(args):
             
             opt.zero_grad()
             if revin is not None: batch_x = revin(batch_x, mode='norm')
-            
-            # Channel Adaptation
-            if pretrain_in_vars != in_vars:
-                batch_x_adapted = channel_adapter(batch_x.transpose(1, 2)).transpose(1, 2)
-            else:
-                batch_x_adapted = batch_x
+            batch_x_adapted = batch_x
             
             # Encoder forward
             with torch.no_grad():
@@ -250,22 +207,7 @@ def train(args):
                 else:
                     x_in = torch.nn.functional.pad(batch_x_adapted, (512 - batch_x_adapted.shape[-1], 0))
                 
-                # TimeVLM: _process가 [B, C, T]를 기대 / 나머지: [B, 1, C, T]
-                if arch_key == "timevlm":
-                    emb = encoder._process(x_in, target_res=224, training=True, is_downstream=True)
-                elif arch_key in ["patchtst", "utica"]:
-                    actual_enc = encoder.encoder if arch_key == "utica" else encoder
-                    emb = actual_enc._process(x_in.unsqueeze(1), max_len=512, offsets=None)
-                elif arch_key in ["timesnet", "timesnet_update"]:
-                    # x_in: [B, C, T] -> transpose to [B, T, C]
-                    seq_repr = encoder(x_in.transpose(1, 2))  # [B, T, D]
-                    emb = seq_repr.mean(dim=1)  # temporal pooling -> [B, D]
-                else:
-                    emb = encoder._process(x_in.unsqueeze(1), target_res=224, training=True, is_downstream=True)
-                
-                # TiViT Independent는 [B, C, Embed]를 반환하므로 채널 방향 평균 취함
-                if arch_key == "tivit_indep":
-                    emb = emb.mean(1)
+                emb = extract_emb(encoder, x_in, arch_key)
                 
             preds = decoder(emb)
             if revin is not None: preds = revin(preds, mode='denorm')
@@ -278,36 +220,20 @@ def train(args):
         avg_train_loss = np.mean(train_loss)
         
         # Validation
-        decoder.eval(); 
-        if pretrain_in_vars != in_vars: channel_adapter.eval()
+        decoder.eval()
         val_loss = []
         with torch.no_grad():
             for batch_x, batch_y in val_loader:
                 batch_x, batch_y = batch_x.to(device, dtype=torch.float32), batch_y.to(device, dtype=torch.float32)
                 if revin is not None: batch_x = revin(batch_x, mode='norm')
-                if pretrain_in_vars != in_vars:
-                    batch_x_adapted = channel_adapter(batch_x.transpose(1, 2)).transpose(1, 2)
-                else:
-                    batch_x_adapted = batch_x
+                batch_x_adapted = batch_x
                 
                 if batch_x_adapted.shape[-1] > 512:
                     x_in = batch_x_adapted[:, :, -512:]
                 else:
                     x_in = torch.nn.functional.pad(batch_x_adapted, (512 - batch_x_adapted.shape[-1], 0))
                 
-                if arch_key == "timevlm":
-                    emb = encoder._process(x_in, target_res=224, training=False, is_downstream=True)
-                elif arch_key in ["patchtst", "utica"]:
-                    actual_enc = encoder.encoder if arch_key == "utica" else encoder
-                    emb = actual_enc._process(x_in.unsqueeze(1), max_len=512, offsets=None)
-                elif arch_key in ["timesnet", "timesnet_update"]:
-                    seq_repr = encoder(x_in.transpose(1, 2))
-                    emb = seq_repr.mean(dim=1)
-                else:
-                    emb = encoder._process(x_in.unsqueeze(1), target_res=224, training=False, is_downstream=True)
-                
-                if arch_key == "tivit_indep":
-                    emb = emb.mean(1)
+                emb = extract_emb(encoder, x_in, arch_key)
                 preds = decoder(emb)
                 if revin is not None: preds = revin(preds, mode='denorm')
                 val_loss.append(criterion(preds, batch_y).item())
@@ -319,45 +245,27 @@ def train(args):
         
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            torch.save({'decoder': decoder.state_dict(), 'adapter': channel_adapter.state_dict() if pretrain_in_vars != in_vars else None}, 
+            torch.save({'decoder': decoder.state_dict()},
                        os.path.join(ckpt_root, f"best_model_{args.pred_len}.pt"))
             
     # 7. Test Evaluation
     best_ckpt = torch.load(os.path.join(ckpt_root, f"best_model_{args.pred_len}.pt"))
     decoder.load_state_dict(best_ckpt['decoder'])
-    if pretrain_in_vars != in_vars and best_ckpt['adapter'] is not None:
-        channel_adapter.load_state_dict(best_ckpt['adapter'])
-    decoder.eval(); 
-    if pretrain_in_vars != in_vars: channel_adapter.eval()
+    decoder.eval()
     
     all_preds, all_trues = [], []
     with torch.no_grad():
         for batch_x, batch_y in test_loader:
             batch_x, batch_y = batch_x.to(device, dtype=torch.float32), batch_y.to(device, dtype=torch.float32)
             if revin is not None: batch_x = revin(batch_x, mode='norm')
-            if pretrain_in_vars != in_vars:
-                batch_x_adapted = channel_adapter(batch_x.transpose(1, 2)).transpose(1, 2)
-            else:
-                batch_x_adapted = batch_x
+            batch_x_adapted = batch_x
                 
             if batch_x_adapted.shape[-1] > 512:
                 x_in = batch_x_adapted[:, :, -512:]
             else:
                 x_in = torch.nn.functional.pad(batch_x_adapted, (512 - batch_x_adapted.shape[-1], 0))
             
-            if arch_key == "timevlm":
-                emb = encoder._process(x_in, target_res=224, training=False, is_downstream=True)
-            elif arch_key in ["patchtst", "utica"]:
-                actual_enc = encoder.encoder if arch_key == "utica" else encoder
-                emb = actual_enc._process(x_in.unsqueeze(1), max_len=512, offsets=None)
-            elif arch_key in ["timesnet", "timesnet_update"]:
-                seq_repr = encoder(x_in.transpose(1, 2))
-                emb = seq_repr.mean(dim=1)
-            else:
-                emb = encoder._process(x_in.unsqueeze(1), target_res=224, training=False, is_downstream=True)
-            
-            if arch_key == "tivit_indep":
-                emb = emb.mean(1)
+            emb = extract_emb(encoder, x_in, arch_key)
             preds = decoder(emb)
             if revin is not None: preds = revin(preds, mode='denorm')
             
@@ -383,7 +291,7 @@ def train(args):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--arch", default="basic")
+    p.add_argument("--arch", default="basic", help=f"Supported: {', '.join(SUPPORTED_ARCHS)}")
     p.add_argument("--pretrain_dataset", default="electricity")
     p.add_argument("--target_dataset", default="ETTm1")
     p.add_argument("--dataset_type", default="ETTm1")
@@ -402,7 +310,7 @@ if __name__ == "__main__":
     
     p.add_argument("--num_workers", type=int, default=0)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--log_dir", default=None)
+    p.add_argument("--log_dir", default=None, help="Optional output directory override for checkpoints and TensorBoard logs")
     
     args = p.parse_args()
     

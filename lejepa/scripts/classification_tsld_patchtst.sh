@@ -50,7 +50,7 @@ for DATASET_NAME in "${DATASETS[@]}"; do
     echo "------------------------------------------"
 
     # 이전에 선생님께서 변경해주신 경로 구조 반영
-    DATA_ROOT="../Dataset/Time-Series-Library_dataset/classification/${DATASET_NAME}"
+    DATA_ROOT="../Dataset/Time-Series-Library_dataset/UEA/${DATASET_NAME}"
     
     # 로그 디렉토리 (Classification 고유 구조)
     LOG_DIR="./checkpoints/classification/classification_${PRETRAIN_DATA}_to_${DATASET_NAME}_${ARCH}_${CHECKPOINT_TYPE}"

@@ -18,20 +18,20 @@ def augment_timeseries_multires(x, jitter_std=0.02, scaling_range=(0.9, 1.1)):
     # if random.random() < 0.5:
     #     x = torch.flip(x, dims=[-1])
         
-    # 2. Gaussian Blur (Smoothing) - p=0.3
-    if random.random() < 0.3:
-        kernel_size = random.choice([3, 5])
-        x = F.pad(x.unsqueeze(0), (kernel_size//2, kernel_size//2), mode='replicate')
-        x = F.avg_pool1d(x, kernel_size=kernel_size, stride=1).squeeze(0)
+    # 2. Gaussian Blur (Smoothing) - 비활성화
+    # if random.random() < 0.3:
+    #     kernel_size = random.choice([3, 5])
+    #     x = F.pad(x.unsqueeze(0), (kernel_size//2, kernel_size//2), mode='replicate')
+    #     x = F.avg_pool1d(x, kernel_size=kernel_size, stride=1).squeeze(0)
 
     # 3. Jittering
     if jitter_std > 0:
         x = x + torch.randn_like(x) * jitter_std
     
-    # 4. Scaling
-    if scaling_range:
-        scale = random.uniform(*scaling_range)
-        x = x * scale
+    # 4. Scaling - 비활성화
+    # if scaling_range:
+    #     scale = random.uniform(*scaling_range)
+    #     x = x * scale
         
     return x
 
