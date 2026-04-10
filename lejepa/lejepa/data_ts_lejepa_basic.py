@@ -8,30 +8,34 @@ from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 from sklearn.preprocessing import StandardScaler
 
-def augment_timeseries_multires(x, jitter_std=0.02, scaling_range=(0.9, 1.1)):
+
+DEFAULT_AUGMENTATIONS = ("jitter", "smoothing", "scaling")
+
+def augment_timeseries_multires(
+    x,
+    jitter_std=0.02,
+    scaling_range=(0.9, 1.1),
+    augmentations=DEFAULT_AUGMENTATIONS,
+):
     """
     이미지 증강 기법의 시계열 이식 버전.
     Args:
         x: [C, T] 텐서
     """
-    # 1. Random Horizontal Flip (Time Reversal) - 시계열 예측(Forecasting) 특성상 방향성 훼손으로 인해 제거됨
-    # if random.random() < 0.5:
-    #     x = torch.flip(x, dims=[-1])
-        
-    # 2. Gaussian Blur (Smoothing) - 비활성화
-    # if random.random() < 0.3:
-    #     kernel_size = random.choice([3, 5])
-    #     x = F.pad(x.unsqueeze(0), (kernel_size//2, kernel_size//2), mode='replicate')
-    #     x = F.avg_pool1d(x, kernel_size=kernel_size, stride=1).squeeze(0)
+    # 1. Gaussian Blur (Smoothing)
+    if "smoothing" in augmentations and random.random() < 0.3:
+        kernel_size = random.choice([3, 5])
+        x = F.pad(x.unsqueeze(0), (kernel_size // 2, kernel_size // 2), mode="replicate")
+        x = F.avg_pool1d(x, kernel_size=kernel_size, stride=1).squeeze(0)
 
-    # 3. Jittering
-    if jitter_std > 0:
+    # 2. Jittering
+    if "jitter" in augmentations and jitter_std > 0:
         x = x + torch.randn_like(x) * jitter_std
-    
-    # 4. Scaling - 비활성화
-    # if scaling_range:
-    #     scale = random.uniform(*scaling_range)
-    #     x = x * scale
+
+    # 3. Scaling
+    if "scaling" in augmentations and scaling_range:
+        scale = random.uniform(*scaling_range)
+        x = x * scale
         
     return x
 
@@ -42,11 +46,13 @@ class MultiResolution1DTransform:
         local_len=256,
         n_global=2,
         n_local=6,
+        augmentations=DEFAULT_AUGMENTATIONS,
     ):
         self.global_len = global_len
         self.local_len = local_len
         self.n_global = n_global
         self.n_local = n_local
+        self.augmentations = tuple(augmentations)
 
     def random_crop_1d(self, x, target_len):
         """1D 시계열에서 연속된 패치(Sub-sequence)를 랜덤 추출합니다.
@@ -62,12 +68,18 @@ class MultiResolution1DTransform:
 
     def __call__(self, x):
         # Global View: 원본 시퀀스 길이 유지 (Sequence level)
-        global_views = [augment_timeseries_multires(x) for _ in range(self.n_global)]
+        global_views = [
+            augment_timeseries_multires(x, augmentations=self.augmentations)
+            for _ in range(self.n_global)
+        ]
         
         # Local View: 증강 후 무작위 부분 구간(Patch level)으로 자름
         # random_crop_1d가 (tensor, start_offset) 튜플을 반환하므로 분리
         local_crops = [
-            self.random_crop_1d(augment_timeseries_multires(x), self.local_len)
+            self.random_crop_1d(
+                augment_timeseries_multires(x, augmentations=self.augmentations),
+                self.local_len,
+            )
             for _ in range(self.n_local)
         ]
         local_views, local_offsets = zip(*local_crops)  # 텐서와 offset 분리
@@ -217,9 +229,28 @@ class TSLDMultiResDataset(Dataset):
         window = torch.from_numpy(window.T) 
         return self.transform(window) if self.transform else window
 
-def get_1d_multires_loaders(dataset_type="electricity", path="", batch_size=64, seq_len=512, stride=128, num_workers=4, max_files=None, local_len=128, arch="basic"):
+def get_1d_multires_loaders(
+    dataset_type="electricity",
+    path="",
+    batch_size=64,
+    seq_len=512,
+    stride=128,
+    num_workers=4,
+    max_files=None,
+    local_len=128,
+    arch="basic",
+    augmentations=DEFAULT_AUGMENTATIONS,
+):
     # UTICA 아키텍처는 GPU에서 자체적으로 Crop을 수행하므로 Transform을 우회하여 원본 텐서를 그대로 반환합니다.
-    transform = MultiResolution1DTransform(global_len=seq_len, local_len=local_len) if arch.lower() != "utica" else None
+    transform = (
+        MultiResolution1DTransform(
+            global_len=seq_len,
+            local_len=local_len,
+            augmentations=augmentations,
+        )
+        if arch.lower() != "utica"
+        else None
+    )
     if dataset_type == "tsld":
         # TSLD 표준: 항상 non-overlapping (stride = seq_len)
         train_ds = TSLDMultiResDataset(path, seq_len, stride, "train", max_files, transform)

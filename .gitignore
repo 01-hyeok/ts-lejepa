@@ -6,3 +6,7 @@ checkpoints/
 logs/
 runs/
 runs_temp/
+scripts/
+openvla/
+mujoco/
+GPU-Utilization-Manager/

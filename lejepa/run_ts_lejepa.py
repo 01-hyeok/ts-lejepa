@@ -16,9 +16,37 @@ from torch.utils.tensorboard import SummaryWriter
 # PyTorch 스케줄러 관련 불필요한 경고 억제
 warnings.filterwarnings("ignore", category=UserWarning, module="torch.optim.lr_scheduler")
 
-from lejepa.data_ts_lejepa_basic import get_1d_multires_loaders
+from lejepa.data_ts_lejepa_basic import DEFAULT_AUGMENTATIONS, get_1d_multires_loaders
 from lejepa.arch_registry import SUPPORTED_ARCHS, build_encoder, validate_arch
 from lejepa.model_ts_lejepa_basic import SIGReg
+
+
+VALID_AUGMENTATIONS = {"jitter", "smoothing", "scaling"}
+DEFAULT_AUGMENTATIONS_CSV = ",".join(DEFAULT_AUGMENTATIONS)
+
+
+def parse_augmentations(raw_value: str):
+    if raw_value is None:
+        raise ValueError("--augmentations must be a comma-separated string.")
+
+    tokens = [token.strip().lower() for token in raw_value.split(",") if token.strip()]
+    if not tokens:
+        return tuple()
+    if tokens == ["none"]:
+        return tuple()
+
+    unknown = sorted(set(tokens) - VALID_AUGMENTATIONS)
+    if unknown:
+        supported = ", ".join(sorted(VALID_AUGMENTATIONS))
+        raise ValueError(
+            f"Unknown augmentations: {', '.join(unknown)}. Supported: {supported}, none"
+        )
+
+    ordered_unique = []
+    for token in tokens:
+        if token not in ordered_unique:
+            ordered_unique.append(token)
+    return tuple(ordered_unique)
 
 def set_seed(seed=42):
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
@@ -113,8 +141,25 @@ def validate(net, sigreg, loader, device, args):
 def train(args):
     set_seed(args.seed); device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.arch = validate_arch(args.arch)
+    args.augmentations = parse_augmentations(args.augmentations)
+    if args.arch == "utica" and args.augmentations:
+        print(
+            "ℹ️  Selected augmentations are ignored for UTICA in this pipeline; "
+            "UTICA uses its own internal augmentation path."
+        )
     # arch를 추가로 넘겨서 UTICA일 경우 transform=None 으로 처리되게 함
-    train_loader, val_loader = get_1d_multires_loaders(args.dataset_type, args.data_path, args.batch_size, args.seq_len, args.stride, args.num_workers, args.max_files, local_len=args.local_len, arch=args.arch)
+    train_loader, val_loader = get_1d_multires_loaders(
+        args.dataset_type,
+        args.data_path,
+        args.batch_size,
+        args.seq_len,
+        args.stride,
+        args.num_workers,
+        args.max_files,
+        local_len=args.local_len,
+        arch=args.arch,
+        augmentations=args.augmentations,
+    )
     
     # 아키텍처별 로그/저장 경로 자동 분리
     args.save_dir = os.path.join(args.save_dir, args.arch)
@@ -125,6 +170,7 @@ def train(args):
     # 데이터셋 정보 상세 출력
     print(f"\n" + "="*50)
     print(f"🚀 Architecture: {args.arch.upper()}")
+    print(f"🧪 Augmentations: {', '.join(args.augmentations) if args.augmentations else 'none'}")
     print(f"📊 Dataset Statistics:")
     print(f"   - Sequence Length (T): {args.seq_len}")
     print(f"   - Train Samples: {len(train_loader.dataset)}, Steps: {len(train_loader)}")
@@ -227,6 +273,12 @@ if __name__ == "__main__":
     p.add_argument("--proj_dim", type=int, default=128); p.add_argument("--vit_model", default="vit_small_patch14_dinov2")
     p.add_argument("--patch_size", type=int, default=16, help="patchtst arch 전용: 1D 패치 크기 (시간 프레임)")
     p.add_argument("--local_len", type=int, default=256, help="Local View 크롭 길이 (타임스텝 단위): 256 = patch_size * 16")
+    p.add_argument(
+        "--augmentations",
+        type=str,
+        default=DEFAULT_AUGMENTATIONS_CSV,
+        help="적용할 augmentation 목록 (comma-separated). 예: jitter,smoothing,scaling 또는 none",
+    )
     p.add_argument("--num_workers", type=int, default=8); p.add_argument("--seed", type=int, default=42)
     p.add_argument("--arch", default="basic", help=f"Supported: {', '.join(SUPPORTED_ARCHS)}")
     p.add_argument("--use_revin", type=lambda x: x.lower() in ("true", "1", "yes"), default=True, help="RevIN(Instance Norm) 적용 여부 (True/False)")
